@@ -1,6 +1,6 @@
-
 import React, { createContext, useContext, useState, useEffect } from 'react';
 import { useToast } from '@/components/ui/use-toast';
+import db from '@/lib/db';
 
 const AuthContext = createContext();
 
@@ -12,7 +12,6 @@ export const AuthProvider = ({ children }) => {
   const { toast } = useToast();
 
   useEffect(() => {
-    // Check if user is logged in from localStorage
     const storedUser = localStorage.getItem('jobhub_user');
     if (storedUser) {
       setCurrentUser(JSON.parse(storedUser));
@@ -21,14 +20,11 @@ export const AuthProvider = ({ children }) => {
   }, []);
 
   const login = (email, password) => {
-    // For demo purposes, we'll use hardcoded users
-    // In a real app, this would be an API call
-    const users = JSON.parse(localStorage.getItem('jobhub_users') || '[]');
-    const user = users.find(u => u.email === email && u.password === password);
+    const stmt = db.prepare('SELECT * FROM users WHERE email = ? AND password = ?');
+    const user = stmt.get(email, password);
     
     if (user) {
-      // Don't store password in currentUser
-      const { password, ...userWithoutPassword } = user;
+      const { password: _, ...userWithoutPassword } = user;
       setCurrentUser(userWithoutPassword);
       localStorage.setItem('jobhub_user', JSON.stringify(userWithoutPassword));
       toast({
@@ -47,45 +43,43 @@ export const AuthProvider = ({ children }) => {
   };
 
   const register = (name, email, password, role = 'jobseeker') => {
-    // For demo purposes, we'll store users in localStorage
-    // In a real app, this would be an API call
-    const users = JSON.parse(localStorage.getItem('jobhub_users') || '[]');
-    
-    // Check if user already exists
-    if (users.some(u => u.email === email)) {
+    try {
+      const stmt = db.prepare('INSERT INTO users (id, name, email, password, role) VALUES (?, ?, ?, ?, ?)');
+      const userId = Date.now().toString();
+      stmt.run(userId, name, email, password, role);
+      
+      const user = {
+        id: userId,
+        name,
+        email,
+        role,
+      };
+      
+      setCurrentUser(user);
+      localStorage.setItem('jobhub_user', JSON.stringify(user));
+      
       toast({
-        title: "Registration failed",
-        description: "Email already in use",
-        variant: "destructive",
+        title: "Registration successful",
+        description: "Your account has been created",
       });
+      
+      return true;
+    } catch (error) {
+      if (error.message.includes('UNIQUE constraint failed')) {
+        toast({
+          title: "Registration failed",
+          description: "Email already in use",
+          variant: "destructive",
+        });
+      } else {
+        toast({
+          title: "Registration failed",
+          description: "An error occurred during registration",
+          variant: "destructive",
+        });
+      }
       return false;
     }
-    
-    // Create new user
-    const newUser = {
-      id: Date.now().toString(),
-      name,
-      email,
-      password,
-      role,
-      createdAt: new Date().toISOString(),
-    };
-    
-    // Add to users array
-    users.push(newUser);
-    localStorage.setItem('jobhub_users', JSON.stringify(users));
-    
-    // Log in the user
-    const { password: _, ...userWithoutPassword } = newUser;
-    setCurrentUser(userWithoutPassword);
-    localStorage.setItem('jobhub_user', JSON.stringify(userWithoutPassword));
-    
-    toast({
-      title: "Registration successful",
-      description: "Your account has been created",
-    });
-    
-    return true;
   };
 
   const logout = () => {
